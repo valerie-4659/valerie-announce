@@ -61,7 +61,7 @@ npm run check               # proves the credentials and the media upload work
 
 Crosspost Helper signs in with OAuth 2.0 and PKCE, because a person is sitting there. X's OAuth 2.0 refresh tokens rotate on every use, so an unattended job would have to write the new one back into its own repository secret after every run — and a crash between the refresh and that write leaves the bot dead with nothing to notice it. OAuth 1.0a tokens are static. For something that runs on a schedule and nobody watches, that outweighs everything else.
 
-Whether X accepts OAuth 1.0a on its v2 media endpoint is genuinely unclear — the developer forums contradict each other. So the upload tries `/2/media/upload` first and falls back to `upload.twitter.com/1.1/media/upload.json`, and `npm run check` reports which one answered. That question is settled by asking, not by reading.
+Whether X accepts OAuth 1.0a on its v2 media endpoint was genuinely unclear — the developer forums contradict each other. Asked directly on **25 August 2026**, `/2/media/upload` accepted it and returned a media id. The v1.1 fallback stays in place against the day that changes, but it is not what runs today. `npm run check` re-answers the question whenever it matters.
 
 ## Triggers
 

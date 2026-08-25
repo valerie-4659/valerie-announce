@@ -2,10 +2,11 @@
 //
 // Two things happen here and both have a fallback, because X moved its media
 // upload onto v2 paths while OAuth 1.0a — the only credential shape that suits
-// an unattended job — is reported to be refused there. Which of the two works
-// is not something to settle by reading forum threads: the code tries the v2
-// endpoint, falls back to the v1.1 one, and `npm run check` proves which
-// answered before any release depends on it.
+// an unattended job — was reported to be refused there. Asked directly on 25
+// August 2026, v2 accepted it and handed back a media id; the forum threads
+// saying otherwise are wrong, or were describing something since fixed. The
+// v1.1 path stays as the fallback against the day that reverses, and
+// `npm run check` re-answers the question rather than trusting this comment.
 //
 // A failure to attach pictures never cancels the post. A release announcement
 // without screenshots is a small loss; a release that goes unannounced because
