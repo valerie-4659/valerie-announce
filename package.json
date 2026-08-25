@@ -10,6 +10,7 @@
     "dry": "node src/announce.mjs --dry",
     "authorize": "node src/authorize.mjs",
     "check": "node src/check.mjs",
+    "say": "node src/say.mjs",
     "test": "node --test test/*.test.mjs"
   }
 }

@@ -44,9 +44,21 @@ npm run dry                 # compose every pending post, send nothing
 node src/announce.mjs --only crossposthelper-app --dry
 npm run authorize           # one-off, gets the tokens for @valeries_apps
 npm run check               # proves the credentials and the media upload work
+npm run say -- --file intro.txt        # a post that is not a release; add --send to send it
 ```
 
 `--dry` never writes the state file. `--seed` records today's releases as already announced without posting, which is how this repository was initialised.
+
+## Saying something that is not a release
+
+`src/say.mjs` posts a text somebody wrote, and nothing else — the account introducing itself, a note that a download is broken, an answer. It reads no releases and touches no state, so it can never interfere with an announcement.
+
+```bash
+node src/say.mjs --file intro.txt                    # prints it, sends nothing
+node src/say.mjs --file intro.txt --image one.png --send
+```
+
+Sending is opt-in for the same reason `--dry` is the default everywhere else here: the direction that costs money and cannot be undone is not the one you get by forgetting a flag. Up to four `--image`, in the order given. The character count is X's own weighted one, so a post is refused here at 281 rather than by the API at 400.
 
 ## Setting it up
 
