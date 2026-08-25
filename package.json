@@ -1,0 +1,15 @@
+{
+  "name": "valerie-announce",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Posts a release announcement to @valeries_apps when any Valerie app publishes one.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "announce": "node src/announce.mjs",
+    "dry": "node src/announce.mjs --dry",
+    "authorize": "node src/authorize.mjs",
+    "check": "node src/check.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}
