@@ -2,8 +2,9 @@
   "articlehelper-app": "v2.8.0",
   "artqueue-app": "v2.3.1",
   "civithelper-app": "v1.13.2",
-  "crossposthelper-app": "v1.26.0",
+  "crossposthelper-app": "v1.27.0",
   "imageworkflowhelper-app": "v0.5.1",
   "metadatahelper-app": "v1.3.0",
+  "promptinghelper-app": "v3.4.307",
   "xhelper-app": "v0.7.0"
 }
