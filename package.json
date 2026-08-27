@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "description": "Posts a release announcement to @valeries_apps when any Valerie app publishes one.",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "announce": "node src/announce.mjs",
     "dry": "node src/announce.mjs --dry",
     "authorize": "node src/authorize.mjs",
     "check": "node src/check.mjs",
     "say": "node src/say.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "recap": "node src/recap.mjs",
+    "recap:dry": "node src/recap.mjs --dry"
   }
 }

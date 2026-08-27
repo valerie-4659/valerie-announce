@@ -13,7 +13,8 @@ import { loadEnv } from "./env.mjs";
 import { discoverApps, latestRelease, namesFromAbout, promoImages, promoTextAsset, download } from "./github.mjs";
 import { compose } from "./compose.mjs";
 import { credentialsFromEnv, uploadMedia, post, priceOf } from "./x.mjs";
-import { readState, writeState } from "./state.mjs";
+import { announceAsset, composeDiscordEmbed, sendDiscord, webhookFromEnv } from "./discord.mjs";
+import { readState, writeState, readDiscordState, writeDiscordState } from "./state.mjs";
 
 loadEnv();
 
@@ -34,6 +35,11 @@ const options = {
   maxAgeHours: Number(value("--max-age-hours", 72)),
   // Repositories that publish releases but are not app announcements.
   skip: (value("--skip", "") || "").split(",").filter(Boolean),
+  // One channel at a time, for testing one of them. Both by default: they are
+  // the same announcement, and a release that reached only half its audience
+  // is the thing this job exists to prevent.
+  noX: has("--no-x"),
+  noDiscord: has("--no-discord"),
 };
 
 function log(...parts) {
@@ -42,11 +48,17 @@ function log(...parts) {
 
 async function main() {
   const state = await readState();
+  const discordState = await readDiscordState();
   const { credentials, missing } = credentialsFromEnv();
-  const canPost = missing.length === 0;
+  const { webhook, missing: webhookMissing } = webhookFromEnv();
+  const canPost = missing.length === 0 && !options.noX;
+  const canDiscord = webhookMissing.length === 0 && !options.noDiscord;
 
-  if (!canPost && !options.dry && !options.seed) {
-    log(`No X credentials (${missing.join(", ")}). Composing only — nothing will be sent.`);
+  if (!canPost && !options.noX && !options.dry && !options.seed) {
+    log(`No X credentials (${missing.join(", ")}). Composing only — nothing will be sent to X.`);
+  }
+  if (!canDiscord && !options.noDiscord && !options.dry && !options.seed) {
+    log(`No Discord webhook (${webhookMissing.join(", ")}). Composing only — nothing will be sent there.`);
   }
 
   const [apps, names] = await Promise.all([discoverApps({ skip: options.skip }), namesFromAbout()]);
@@ -63,15 +75,19 @@ async function main() {
     if (!release) continue;
 
     const name = names[app.repo] || app.name;
-    const known = state[app.repo];
-    if (known === release.tag) continue;
+    // Two channels, two questions. A tag X has already carried but Discord has
+    // not is still pending — which is what makes adding a channel to a running
+    // announcer safe: it owes every current release exactly once.
+    const owedX = state[app.repo] !== release.tag;
+    const owedDiscord = discordState[app.repo] !== release.tag;
+    if (!owedX && !owedDiscord) continue;
 
     const ageHours = (now - Date.parse(release.publishedAt)) / 3_600_000;
     // An --only run is somebody asking for this one on purpose, so the age
     // guard steps aside; an automatic run keeps it.
     const tooOld = ageHours > options.maxAgeHours && !options.only;
 
-    pending.push({ ...release, name, ageHours, tooOld });
+    pending.push({ ...release, name, ageHours, tooOld, owedX, owedDiscord });
   }
 
   if (pending.length === 0) {
@@ -87,6 +103,7 @@ async function main() {
     if (options.seed || release.tooOld) {
       log(`· ${release.name} ${release.tag} — recorded, not announced (${Math.round(release.ageHours)}h old)`);
       state[release.repo] = release.tag;
+      discordState[release.repo] = release.tag;
       continue;
     }
     toPost.push(release);
@@ -110,36 +127,84 @@ async function main() {
       override,
     });
 
-    const price = priceOf(text);
+    const price = release.owedX && !options.noX ? priceOf(text) : 0;
     spend += price;
 
     log("");
     log(`--- ${release.repo} (${source}, ${weight}/280 characters, $${price.toFixed(3)}, ${images.length} picture(s))`);
     log(text.split("\n").map((line) => `    ${line}`).join("\n"));
 
-    if (options.dry || !canPost) continue;
+    // ── X ───────────────────────────────────────────────────────────────────
+    if (release.owedX && !options.dry && canPost) {
+      const mediaIds = [];
+      for (const image of images) {
+        try {
+          const data = await download(image.url);
+          const { mediaId, via } = await uploadMedia(credentials, {
+            data,
+            filename: image.name,
+            type: image.contentType || "image/png",
+          });
+          mediaIds.push(mediaId);
+          log(`    attached ${image.name} (${via})`);
+        } catch (error) {
+          // Deliberately not fatal: the announcement is the point, the picture
+          // is the garnish.
+          log(`    could not attach ${image.name}: ${error.message}`);
+        }
+      }
 
-    const mediaIds = [];
-    for (const image of images) {
+      const posted = await post(credentials, { text, mediaIds });
+      log(`    posted: https://x.com/valeries_apps/status/${posted.id}`);
+      state[release.repo] = release.tag;
+    } else if (!release.owedX) {
+      log("    X: already announced");
+    }
+
+    // ── Discord ─────────────────────────────────────────────────────────────
+    //
+    // Composed even on a dry run, and printed, because the two channels say
+    // different amounts and only one of them can be judged from the X post.
+    if (!release.owedDiscord) {
+      log("    Discord: already announced");
+      continue;
+    }
+
+    const asset = announceAsset(release);
+    let announcement = null;
+    if (asset) {
       try {
-        const data = await download(image.url);
-        const { mediaId, via } = await uploadMedia(credentials, {
-          data,
-          filename: image.name,
-          type: image.contentType || "image/png",
-        });
-        mediaIds.push(mediaId);
-        log(`    attached ${image.name} (${via})`);
+        announcement = JSON.parse((await download(asset.url)).toString("utf8"));
       } catch (error) {
-        // Deliberately not fatal: the announcement is the point, the picture
-        // is the garnish.
-        log(`    could not attach ${image.name}: ${error.message}`);
+        // The body is always there to fall back on, and a malformed asset must
+        // not cost the announcement.
+        log(`    could not read ${asset.name}: ${error.message}`);
       }
     }
 
-    const posted = await post(credentials, { text, mediaIds });
-    log(`    posted: https://x.com/valeries_apps/status/${posted.id}`);
-    state[release.repo] = release.tag;
+    const { embed, source: discordSource } = composeDiscordEmbed({
+      app: release.name,
+      tag: release.tag,
+      url: release.url,
+      body: release.body,
+      announcement,
+      imageUrl: images[0]?.url ?? "",
+    });
+
+    log(`    Discord (${discordSource}, ${embed.description.length}/4096 characters):`);
+    log(embed.description.split("\n").map((line) => `      ${line}`).join("\n"));
+
+    if (options.dry || !canDiscord) continue;
+
+    try {
+      await sendDiscord(webhook, embed);
+      log("    Discord: sent");
+      discordState[release.repo] = release.tag;
+    } catch (error) {
+      // One channel failing does not cost the other. The state file keeps the
+      // tag unrecorded, so the next run tries Discord again and leaves X alone.
+      log(`    Discord: ${error.message}`);
+    }
   }
 
   if (options.dry) {
@@ -149,7 +214,8 @@ async function main() {
   }
 
   await writeState(state);
-  if (spend > 0) log(`\nSpent about $${spend.toFixed(2)} with X.`);
+  await writeDiscordState(discordState);
+  if (spend > 0) log(`\nSpent about $${spend.toFixed(2)} with X. Discord costs nothing.`);
 }
 
 main().catch((error) => {

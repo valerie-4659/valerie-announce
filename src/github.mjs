@@ -119,6 +119,48 @@ export async function latestRelease(repo) {
   };
 }
 
+/**
+ * Every published release of a repository since a moment, newest first.
+ *
+ * `/releases/latest` answers the announcement's question — what is the newest
+ * thing nobody has posted about. The recap asks a different one: what shipped
+ * in a fortnight, which is nearly always more than one release and sometimes
+ * none. Drafts and pre-releases are dropped here, because this endpoint,
+ * unlike `/latest`, returns them.
+ */
+export async function releasesSince(repo, sinceIso) {
+  const since = Date.parse(sinceIso);
+  const found = [];
+  for (let page = 1; page <= 3; page += 1) {
+    const batch = await api(`/repos/${OWNER}/${repo}/releases?per_page=100&page=${page}`);
+    if (!batch?.length) break;
+    for (const release of batch) {
+      if (release.draft || release.prerelease || !release.published_at) continue;
+      if (Date.parse(release.published_at) < since) continue;
+      found.push({
+        repo,
+        tag: release.tag_name,
+        url: release.html_url,
+        body: release.body || "",
+        publishedAt: release.published_at,
+        assets: (release.assets || []).map((asset) => ({
+          name: asset.name,
+          url: asset.browser_download_url,
+          size: asset.size,
+          contentType: asset.content_type,
+        })),
+      });
+    }
+    // The list comes back newest first, so a page whose oldest entry is already
+    // outside the window means every later page is too. Checked on the page
+    // rather than on the entry: a release created before another and published
+    // after it would end the walk one release early.
+    const oldest = batch[batch.length - 1];
+    if (batch.length < 100 || (oldest?.published_at && Date.parse(oldest.published_at) < since)) break;
+  }
+  return found.sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+}
+
 /** Up to four screenshots attached to the release, in name order. */
 export function promoImages(release, limit = 4) {
   return (release.assets || [])

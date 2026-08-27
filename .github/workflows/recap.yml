@@ -1,0 +1,80 @@
+# The fortnightly recap: one post per app, saying what shipped since the last one.
+#
+# The schedule runs weekly and the cadence gate lives in the script, not in the
+# cron expression. Cron cannot express "every two weeks" — the nearest thing,
+# a day-of-month rule, drifts through the year and skips whole months — and a
+# gate in the script is also what makes a missed run recoverable: the next
+# Monday sees that fifteen days have passed and posts, rather than waiting
+# another fortnight because the calendar said so.
+#
+# Nothing is posted for an app with no release in its window. Most Mondays this
+# workflow runs, says so, and sends nothing.
+name: Recap
+
+on:
+  schedule:
+    # Mondays, mid-morning UTC. The gate in the script decides which apps are
+    # actually due; the offset from the announcer's :17 is so the two never
+    # contend for the state commit.
+    - cron: "43 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Compose the recaps and print them, send nothing"
+        type: boolean
+        default: true
+      only:
+        description: "One hub repository, e.g. crossposthelper-app"
+        required: false
+      every_days:
+        description: "How many days between recaps for one app"
+        default: "14"
+
+permissions:
+  contents: write
+
+concurrency:
+  # Against the announcer as well as against itself: both commit to this
+  # repository, and two pushes racing lose one of them.
+  group: announce
+  cancel-in-progress: false
+
+jobs:
+  recap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: The composer still does what it is supposed to
+        run: npm test
+
+      - name: Recap
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+          # The same fortnight on Discord. See the note in announce.yml.
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node src/recap.mjs \
+            ${{ (github.event_name == 'workflow_dispatch' && inputs.dry) && '--dry' || '' }} \
+            ${{ inputs.only && format('--only {0}', inputs.only) || '' }} \
+            --every-days "${{ inputs.every_days || '14' }}"
+
+      - name: Record what went out
+        run: |
+          if git diff --quiet -- state/recapped.json; then
+            echo "No recap was due."
+            exit 0
+          fi
+          git config user.name "valerie-4659"
+          git config user.email "264322489+valerie-4659@users.noreply.github.com"
+          git add state/recapped.json
+          git commit -m "chore: record the recaps posted"
+          git push

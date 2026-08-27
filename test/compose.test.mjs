@@ -5,7 +5,10 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compose, bulletsFrom, stripMarkdown, weight, postWeight, MAX_WEIGHT } from "../src/compose.mjs";
+import {
+  compose, bulletsFrom, stripMarkdown, weight, postWeight, MAX_WEIGHT,
+  highlightFrom, composeRecap,
+} from "../src/compose.mjs";
 
 // valerie-4659/crossposthelper-app, v1.19.0
 const CROSSPOST = `### ✨ New
@@ -143,4 +146,80 @@ test("a glob is not read as emphasis", () => {
   assert.equal(stripMarkdown("`**/node_modules/sharp/**/*`"), "**/node_modules/sharp/**/*");
   // Ordinary bold still goes.
   assert.equal(stripMarkdown("**User Guide modal** — a button"), "User Guide modal — a button");
+});
+
+// The fortnightly recap.
+
+test("the lead line of a release is read as its headline", () => {
+  const body = "**Start from the picture** — Open the picker with a picture already chosen.\n\n### ✨ New\n\n- Pick first\n";
+  assert.deepEqual(highlightFrom(body), {
+    title: "Start from the picture",
+    sentence: "Open the picker with a picture already chosen",
+  });
+});
+
+test("a lead with no sentence after it is still a headline", () => {
+  assert.deepEqual(highlightFrom("**Start from the picture**\n\n### ✨ New\n"), {
+    title: "Start from the picture",
+    sentence: "",
+  });
+});
+
+test("bold inside a section is not the release's headline", () => {
+  // Only the line above the first heading is the lead. A section that opens
+  // with bold prose — which metadatahelper's releases do — is not it.
+  assert.equal(highlightFrom("### Added\n\n**Something bold** in a section\n"), null);
+  assert.equal(highlightFrom("### ✨ New\n\n- A bullet\n"), null);
+  assert.equal(highlightFrom(""), null);
+});
+
+test("a recap names one change per release, newest first", () => {
+  const recap = composeRecap({
+    app: "Crosspost Helper",
+    url: "https://github.com/valerie-4659/crossposthelper-app/releases",
+    releases: [
+      { body: "**Start from the picture** — Open the picker with one already chosen.\n\n### ✨ New\n\n- x\n" },
+      { body: "### ✨ New\n\n- Filter the shelf by where a picture came from\n" },
+    ],
+  });
+  const lines = recap.text.split("\n");
+  assert.equal(lines[0], "Crosspost Helper — the last two weeks");
+  assert.equal(lines[2], "✨ Start from the picture");
+  assert.equal(lines[3], "✨ Filter the shelf by where a picture came from");
+  assert.ok(recap.text.endsWith("2 releases  https://github.com/valerie-4659/crossposthelper-app/releases"));
+  assert.ok(recap.weight <= MAX_WEIGHT);
+});
+
+test("a release nobody can read contributes no line but is still counted", () => {
+  // "6 releases" and six lines are different claims, and only one is true.
+  const recap = composeRecap({
+    app: "App",
+    url: "https://example.com/releases",
+    releases: [
+      { body: "**A real headline** — with a sentence.\n" },
+      { body: "asarUnpack entries added for /node_modules/sharp\n" },
+      { body: "" },
+    ],
+  });
+  assert.equal(recap.lines, 1);
+  assert.equal(recap.releases, 3);
+  assert.ok(recap.text.includes("3 releases"));
+});
+
+test("nothing readable means no recap at all", () => {
+  assert.equal(composeRecap({ app: "App", url: "https://example.com", releases: [{ body: "no headings, no lead" }] }), null);
+  assert.equal(composeRecap({ app: "App", url: "https://example.com", releases: [] }), null);
+});
+
+test("a recap never exceeds what X accepts", () => {
+  const releases = Array.from({ length: 8 }, (_, i) => ({ body: `**${"h".repeat(60)} ${i}** — s.\n` }));
+  const recap = composeRecap({ app: "Crosspost Helper", url: "https://github.com/valerie-4659/x/releases", releases });
+  assert.ok(recap.weight <= MAX_WEIGHT, `${recap.weight} weighted characters`);
+  assert.ok(recap.lines >= 1);
+});
+
+test("one release reads as one release", () => {
+  const recap = composeRecap({ app: "App", url: "https://example.com", releases: [{ body: "**One thing** — s.\n" }] });
+  assert.ok(recap.text.includes("1 release  "));
+  assert.ok(!recap.text.includes("1 releases"));
 });

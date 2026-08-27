@@ -59,6 +59,11 @@ jobs:
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+          # The other channel. One webhook for the whole account, so an app is
+          # on Discord the day it publishes its first release and no project
+          # repository carries a webhook, a script or a documented step.
+          # Without it the run still announces on X and says Discord was skipped.
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node src/announce.mjs \
@@ -67,14 +72,17 @@ jobs:
             --max-age-hours "${{ inputs.max_age_hours || '72' }}" \
             --max-posts 3
 
+      # Both files, because the two channels are recorded separately: a run
+      # that reached X and not Discord has to remember exactly that, or the
+      # next run re-announces on X to fix a Discord outage.
       - name: Record what went out
         run: |
-          if git diff --quiet -- state/posted.json; then
+          if git diff --quiet -- state/posted.json state/posted-discord.json; then
             echo "Nothing new was announced."
             exit 0
           fi
           git config user.name "valerie-4659"
           git config user.email "264322489+valerie-4659@users.noreply.github.com"
-          git add state/posted.json
+          git add state/posted.json state/posted-discord.json
           git commit -m "chore: record the releases announced"
           git push

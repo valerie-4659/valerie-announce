@@ -216,3 +216,75 @@ export function compose({ app, tag, url, body = "", override = "" }) {
   text = lines.length ? [header, "", ...lines, "", url].join("\n") : [header, "", url].join("\n");
   return { text, weight: postWeight(text), source: lines.length ? "bullets" : "headline" };
 }
+
+/**
+ * The lead line of a release body, when it has one.
+ *
+ * Since the projects started writing their notes for users, a release opens
+ * with the one change worth knowing — `**Start from the picture** — open the
+ * picker with a picture already chosen.` — above the sections. That line is
+ * the release in one sentence, which is exactly what a recap of six releases
+ * needs and what no bullet in the list can be trusted to be.
+ *
+ * Returns null for the older shape, where there is no such line. The caller
+ * falls back to a bullet, and to nothing after that.
+ */
+export function highlightFrom(body) {
+  for (const raw of String(body ?? "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    // The lead sits above the first heading. Anything after one is a section's
+    // own bold text, which is not the release's headline.
+    if (/^#{1,6}\s/.test(line) || /^(-{3,}|\*{3,}|_{3,})$/.test(line)) return null;
+    const match = line.match(/^\*\*(.+?)\*\*\s*(?:[—–-]\s*(.*))?$/);
+    if (match) {
+      const title = stripMarkdown(match[1]);
+      return title ? { title, sentence: stripMarkdown(match[2] ?? "").replace(/[.]$/, "") } : null;
+    }
+    // A first line that is neither a heading nor a lead means this body does
+    // not have one.
+    return null;
+  }
+  return null;
+}
+
+/** How many releases a recap names at most, however well they fit. */
+export const MAX_RECAP_LINES = 4;
+
+/**
+ * The fortnightly recap for one app.
+ *
+ * One line per release, newest first, each the thing that release was about.
+ * A release that says nothing a stranger can read contributes no line but is
+ * still counted, because "6 releases" and six lines are different claims and
+ * only one of them is true.
+ *
+ * Returns null when there is nothing to say. A recap post that amounts to
+ * "some releases happened" costs $0.20 and teaches the reader to scroll past
+ * the account, which is worse than silence.
+ */
+export function composeRecap({ app, url, releases = [], since = "the last two weeks" }) {
+  const lines = [];
+  for (const release of releases) {
+    if (lines.length >= MAX_RECAP_LINES) break;
+    const highlight = highlightFrom(release.body);
+    if (highlight) {
+      if (weight(highlight.title) <= SHORT_BULLET) lines.push(`✨ ${highlight.title}`);
+      continue;
+    }
+    const [bullet] = headlineBullets(bulletsFrom(release.body));
+    if (bullet) lines.push(`${bullet.emoji} ${bullet.text}`);
+  }
+  if (!lines.length) return null;
+
+  const header = `${app} — ${since}`;
+  const count = `${releases.length} release${releases.length === 1 ? "" : "s"}`;
+
+  for (let kept = lines.length; kept >= 1; kept -= 1) {
+    const text = [header, "", ...lines.slice(0, kept), "", `${count}  ${url}`].join("\n");
+    if (postWeight(text) <= MAX_WEIGHT) {
+      return { text, weight: postWeight(text), lines: kept, releases: releases.length };
+    }
+  }
+  return null;
+}
